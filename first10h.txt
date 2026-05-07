@@ -1,0 +1,994 @@
+# 从规划到执行：完整 10 小时可跑代码包
+
+下面给你一套可以**直接粘进 Kaggle Notebook 就能跑**的代码。所有文件内容完整，没有省略号。先说环境和数据，然后给代码，最后给执行清单。
+
+---
+
+## 一、环境选择（直接用 Kaggle，别折腾本地）
+
+**为什么是 Kaggle 而不是本地：**
+- 免费 T4 GPU（16GB），SmolLM-135M 占用 < 1GB，跑得飞快
+- transformers/torch/sklearn 预装好了
+- 每周 30h 配额，Phase -1 几小时就出结果
+- 代码和数据都在云端，不怕本机炸
+
+**新建 Notebook 步骤：**
+1. 登录 kaggle.com
+2. 右上角 Create → New Notebook
+3. 右侧 Settings：
+   - Accelerator: **GPU T4 x1**
+   - Persistence: **Files only**（代码每次重启会丢，但 /kaggle/working 的文件保留）
+   - Internet: **On**（要从 HuggingFace 下载模型）
+4. 左侧 File → Upload 把我们下面写的文件都传进去（或直接在 notebook cell 里写）
+
+---
+
+## 二、数据集：自己生成，不下载
+
+Phase -1 的任务**必须自己合成**，原因：
+1. 数据泄露控制（补丁 4）
+2. 可精确控制难度和答案 token 数
+3. 不需要 Kaggle dataset 挂载
+
+下面的 `generators.py` 会自动生成四类任务。不需要从任何地方下载。
+
+如果以后 Phase 2/3 需要真实数据集作对照，可以挂这些（**现在不用**）：
+- GSM8K: `kaggle datasets download -d thedevastator/dataset-for-context-based-math-qa`
+- ARC-Easy: HuggingFace `allenai/ai2_arc`
+- MMLU: HuggingFace `cais/mmlu`
+
+---
+
+## 三、项目骨架
+
+在 Kaggle notebook 第一个 cell 创建目录结构：
+
+```python
+# Cell 1: 创建目录结构
+import os
+os.makedirs('/kaggle/working/utils', exist_ok=True)
+os.makedirs('/kaggle/working/tests', exist_ok=True)
+os.makedirs('/kaggle/working/data', exist_ok=True)
+os.makedirs('/kaggle/working/results', exist_ok=True)
+
+# 把 working 加入 path
+import sys
+sys.path.insert(0, '/kaggle/working')
+print("目录就绪")
+```
+
+---
+
+## 四、H0-1：Tokenizer 侦查（必须先跑，决定后续一切）
+
+**`/kaggle/working/tokenizer_recon.py`**
+
+```python
+"""
+H0-1: Tokenizer 侦查
+目的：回答"SmolLM-135M 的答案 token 怎么切"
+输出：results/tokenizer_recon.json
+"""
+import json
+from transformers import AutoTokenizer
+
+MODEL_ID = "HuggingFaceTB/SmolLM-135M"
+
+def run_recon():
+    tok = AutoTokenizer.from_pretrained(MODEL_ID)
+    
+    # 测试三类候选答案
+    candidates = {
+        "single_digit": [str(i) for i in range(0, 10)],
+        "two_digit": [str(i) for i in [10, 12, 19, 42, 77, 99]],
+        "word_answers": ["yes", "no", "A", "B", "C", "true", "false", 
+                         "larger", "smaller", "equal"],
+        "with_leading_space": [f" {i}" for i in range(0, 10)],
+    }
+    
+    results = {"model": MODEL_ID, "categories": {}}
+    
+    for cat, items in candidates.items():
+        cat_result = []
+        for item in items:
+            ids = tok.encode(item, add_special_tokens=False)
+            decoded = [tok.decode([i]) for i in ids]
+            cat_result.append({
+                "text": item,
+                "token_ids": ids,
+                "token_count": len(ids),
+                "decoded_tokens": decoded,
+            })
+        results["categories"][cat] = cat_result
+    
+    # 关键诊断：找出能保证"单 token 答案"的答案空间
+    single_token_answers = []
+    for cat, items in results["categories"].items():
+        for r in items:
+            if r["token_count"] == 1:
+                single_token_answers.append({
+                    "text": r["text"], 
+                    "category": cat,
+                    "token_id": r["token_ids"][0]
+                })
+    results["single_token_answers"] = single_token_answers
+    results["single_token_count"] = len(single_token_answers)
+    
+    # 测试完整 prompt 的切分（看"A:"后的空格行为）
+    test_prompts = [
+        "Q: What is 2 + 3?\nA:",
+        "Q: What is 2 + 3?\nA: ",
+        "Question: 2+3=",
+        "2+3=",
+    ]
+    prompt_analysis = []
+    for p in test_prompts:
+        ids = tok.encode(p, add_special_tokens=False)
+        prompt_analysis.append({
+            "prompt": p,
+            "last_5_tokens": [tok.decode([i]) for i in ids[-5:]],
+            "total_tokens": len(ids),
+        })
+    results["prompt_tail_analysis"] = prompt_analysis
+    
+    with open('/kaggle/working/results/tokenizer_recon.json', 'w') as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+    
+    return results
+
+
+if __name__ == "__main__":
+    r = run_recon()
+    print(f"单 token 答案数: {r['single_token_count']}")
+    print(f"\n前 20 个单 token 答案:")
+    for s in r['single_token_answers'][:20]:
+        print(f"  '{s['text']}' -> id={s['token_id']} (类别={s['category']})")
+    print(f"\nprompt 尾部分析:")
+    for p in r['prompt_tail_analysis']:
+        print(f"  '{p['prompt']}' -> 尾5token: {p['last_5_tokens']}")
+```
+
+**执行方式：**
+
+```python
+# Cell 2
+%run /kaggle/working/tokenizer_recon.py
+```
+
+**期望输出（判断标准）：**
+- 如果 `single_digit` 类别里 "0"-"9" 每个都是 **1 个 token** → ✅ 任务用个位数运算
+- 如果带空格版本 " 0"-" 9" 是 1 个 token 而裸数字不是 → 必须用 "A: X" 格式并在前面加空格
+- 如果两位数 "42" 是 **2 个 token** → Phase -1 只用结果 ≤ 9 的任务
+
+**这一步没通过不要做下一步。**
+
+---
+
+## 五、H1-3：核心工具函数（三个文件，带测试）
+
+### `/kaggle/working/utils/seeding.py`
+
+```python
+"""统一管理所有随机源。永远传 bundle，永远不传裸整数。"""
+import random
+import numpy as np
+import torch
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class SeedBundle:
+    data_seed: int = 42
+    sampling_seed: int = 43
+    probe_init_seed: int = 44
+    spl_init_seed: int = 45
+    
+    def apply_global(self):
+        """跑主实验前调用。注意：不包含 sampling_seed，那个每次采样单独用。"""
+        random.seed(self.data_seed)
+        np.random.seed(self.data_seed)
+        torch.manual_seed(self.data_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.data_seed)
+    
+    def replace(self, **kwargs):
+        """生成一个新 bundle（不可变）"""
+        from dataclasses import replace
+        return replace(self, **kwargs)
+
+
+DEFAULT_BUNDLE = SeedBundle()
+```
+
+### `/kaggle/working/utils/signals.py`
+
+```python
+"""MMQ 信号计算。所有函数输入 logits (Tensor [vocab_size])，输出标量 float。"""
+import torch
+import torch.nn.functional as F
+
+
+def compute_entropy(logits: torch.Tensor) -> float:
+    """
+    logits: [vocab_size] float tensor
+    returns: Shannon entropy in nats
+    
+    注意：用 log_softmax 计算数值稳定，避免 log(0)
+    """
+    assert logits.dim() == 1, f"expected 1D logits, got shape {logits.shape}"
+    log_probs = F.log_softmax(logits, dim=-1)
+    probs = log_probs.exp()
+    # -sum(p * log(p))，0*log(0) 被约定为 0
+    entropy = -(probs * log_probs).sum().item()
+    return float(entropy)
+
+
+def compute_margin(logits: torch.Tensor) -> float:
+    """top1 和 top2 的 logit 差"""
+    assert logits.dim() == 1
+    top2 = torch.topk(logits, 2).values
+    return float((top2[0] - top2[1]).item())
+
+
+def compute_max_prob(logits: torch.Tensor) -> float:
+    """top1 的 softmax 概率（范围 0-1）"""
+    assert logits.dim() == 1
+    return float(F.softmax(logits, dim=-1).max().item())
+
+
+def compute_neg_log_prob_correct(logits: torch.Tensor, correct_token_id: int) -> float:
+    """
+    正确答案 token 的负对数概率。用作"oracle"信号（需要知道答案）。
+    不进 MMQ 主表，只用来诊断"信号理论上限"。
+    """
+    assert logits.dim() == 1
+    log_probs = F.log_softmax(logits, dim=-1)
+    return float(-log_probs[correct_token_id].item())
+
+
+SIGNAL_REGISTRY = {
+    "entropy": compute_entropy,
+    "margin": compute_margin,
+    "max_prob": compute_max_prob,
+}
+```
+
+### `/kaggle/working/utils/stats.py`
+
+```python
+"""Bootstrap AUROC CI。只用 numpy + sklearn，不依赖其它。"""
+import numpy as np
+from sklearn.metrics import roc_auc_score
+from typing import Tuple
+
+
+def bootstrap_auroc_ci(
+    scores: np.ndarray,
+    labels: np.ndarray,
+    n_bootstrap: int = 1000,
+    seed: int = 42,
+    ci: float = 0.95,
+) -> dict:
+    """
+    scores: [N] 预测分数（比如 entropy 的负数，高分=高置信）
+    labels: [N] 0/1 正确性标签（1=正确）
+    
+    注意信号方向：entropy 越高意味着越不确定，所以正确性标签和 entropy
+    应该负相关。如果算出的 AUROC < 0.5，代表信号有用但方向反了。
+    统一做法：AUROC 自动取 max(auroc, 1-auroc) 是错的——会丢信息。
+    这里返回原始 AUROC 和 direction 说明。
+    """
+    scores = np.asarray(scores)
+    labels = np.asarray(labels)
+    n = len(scores)
+    assert len(labels) == n, "length mismatch"
+    
+    # 退化检查
+    if len(np.unique(labels)) < 2:
+        return {
+            "auroc_mean": float('nan'),
+            "ci_low": float('nan'),
+            "ci_high": float('nan'),
+            "ci_width": float('nan'),
+            "n": n,
+            "degenerate": True,
+            "reason": "labels are all same class",
+        }
+    
+    point_auroc = roc_auc_score(labels, scores)
+    
+    rng = np.random.RandomState(seed)
+    boot_aurocs = []
+    fails = 0
+    for _ in range(n_bootstrap):
+        idx = rng.choice(n, size=n, replace=True)
+        try:
+            boot_aurocs.append(roc_auc_score(labels[idx], scores[idx]))
+        except ValueError:
+            # 抽样后某类缺失
+            fails += 1
+    
+    boot_aurocs = np.array(boot_aurocs)
+    alpha = (1 - ci) / 2
+    ci_low = np.percentile(boot_aurocs, alpha * 100)
+    ci_high = np.percentile(boot_aurocs, (1 - alpha) * 100)
+    
+    return {
+        "auroc_mean": float(point_auroc),
+        "auroc_bootstrap_mean": float(boot_aurocs.mean()),
+        "ci_low": float(ci_low),
+        "ci_high": float(ci_high),
+        "ci_width": float(ci_high - ci_low),
+        "n": n,
+        "n_bootstrap_fails": fails,
+        "degenerate": False,
+        "direction_note": "auroc < 0.5 means signal predicts in reverse direction",
+    }
+```
+
+### `/kaggle/working/tests/test_signals.py`
+
+```python
+"""单元测试。必须全部通过才能继续。"""
+import sys
+sys.path.insert(0, '/kaggle/working')
+
+import math
+import torch
+import numpy as np
+from utils.signals import compute_entropy, compute_margin, compute_max_prob
+from utils.stats import bootstrap_auroc_ci
+
+
+def test_entropy_uniform():
+    """均匀分布的熵应该是 log(V)"""
+    V = 100
+    logits = torch.zeros(V)  # 均匀
+    e = compute_entropy(logits)
+    expected = math.log(V)
+    assert abs(e - expected) < 1e-5, f"expected {expected}, got {e}"
+    print(f"✅ test_entropy_uniform: H={e:.4f}, expected={expected:.4f}")
+
+
+def test_entropy_peaked():
+    """极端尖峰分布熵应接近 0"""
+    logits = torch.zeros(100)
+    logits[0] = 100.0
+    e = compute_entropy(logits)
+    assert e < 1e-3, f"expected near 0, got {e}"
+    print(f"✅ test_entropy_peaked: H={e:.6f}")
+
+
+def test_entropy_two_peaks():
+    """两个相等的峰：熵应该是 log(2)"""
+    logits = torch.full((100,), -1000.0)
+    logits[0] = 0.0
+    logits[1] = 0.0
+    e = compute_entropy(logits)
+    expected = math.log(2)
+    assert abs(e - expected) < 1e-4, f"expected {expected}, got {e}"
+    print(f"✅ test_entropy_two_peaks: H={e:.4f}, expected={expected:.4f}")
+
+
+def test_margin():
+    """margin 测试：top1=10, top2=3, 差=7"""
+    logits = torch.tensor([10.0, 3.0, 1.0, -1.0, -5.0])
+    m = compute_margin(logits)
+    assert abs(m - 7.0) < 1e-5
+    print(f"✅ test_margin: {m}")
+
+
+def test_max_prob():
+    """单一尖峰 max_prob 接近 1"""
+    logits = torch.full((100,), -100.0)
+    logits[0] = 100.0
+    p = compute_max_prob(logits)
+    assert p > 0.99
+    print(f"✅ test_max_prob: {p:.6f}")
+
+
+def test_bootstrap_perfect_signal():
+    """完美可分信号：AUROC 应接近 1"""
+    scores = np.concatenate([np.random.randn(100) + 5, np.random.randn(100)])
+    labels = np.concatenate([np.ones(100), np.zeros(100)])
+    r = bootstrap_auroc_ci(scores, labels, n_bootstrap=500)
+    assert r["auroc_mean"] > 0.95, r
+    assert r["ci_width"] < 0.1, r
+    print(f"✅ test_bootstrap_perfect: AUROC={r['auroc_mean']:.3f}, "
+          f"CI=[{r['ci_low']:.3f}, {r['ci_high']:.3f}]")
+
+
+def test_bootstrap_random_signal():
+    """随机信号：AUROC 应接近 0.5"""
+    np.random.seed(0)
+    scores = np.random.randn(500)
+    labels = (np.random.rand(500) > 0.5).astype(int)
+    r = bootstrap_auroc_ci(scores, labels, n_bootstrap=500)
+    assert 0.4 < r["auroc_mean"] < 0.6, r
+    print(f"✅ test_bootstrap_random: AUROC={r['auroc_mean']:.3f}, "
+          f"CI=[{r['ci_low']:.3f}, {r['ci_high']:.3f}]")
+
+
+def test_bootstrap_degenerate():
+    """全是同一类：应返回 degenerate"""
+    scores = np.random.randn(100)
+    labels = np.ones(100)
+    r = bootstrap_auroc_ci(scores, labels)
+    assert r["degenerate"] == True
+    print(f"✅ test_bootstrap_degenerate: {r['reason']}")
+
+
+if __name__ == "__main__":
+    test_entropy_uniform()
+    test_entropy_peaked()
+    test_entropy_two_peaks()
+    test_margin()
+    test_max_prob()
+    test_bootstrap_perfect_signal()
+    test_bootstrap_random_signal()
+    test_bootstrap_degenerate()
+    print("\n🎉 所有测试通过")
+```
+
+**执行：**
+
+```python
+# Cell 3
+%run /kaggle/working/tests/test_signals.py
+```
+
+**必须看到 "🎉 所有测试通过" 才能继续。** 任何一个 fail 都说明基础设施有 bug，后面跑实验都是假数据。
+
+---
+
+## 六、H3-5：Phase -1 Mini 运行器
+
+### `/kaggle/working/data/generators.py`
+
+```python
+"""
+合成任务。每个任务函数返回 list of dict:
+  {"prompt": str, "answer": str, "meta": dict}
+
+注意：所有答案必须是 tokenizer_recon 确认过的"单 token 答案"。
+先跑 tokenizer_recon.py 再跑这个。
+"""
+import random
+from typing import List, Dict
+
+
+def gen_add_small(n: int, seed: int = 42) -> List[Dict]:
+    """个位数加法，和 ≤ 9。答案保证是单 token 数字。"""
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        a = rng.randint(0, 9)
+        b = rng.randint(0, 9 - a)  # 和 ≤ 9
+        ans = a + b
+        out.append({
+            "prompt": f"Q: What is {a} + {b}?\nA:",
+            "answer": str(ans),
+            "meta": {"task": "add_small", "a": a, "b": b, "difficulty": "easy"}
+        })
+    return out
+
+
+def gen_sub_small(n: int, seed: int = 42) -> List[Dict]:
+    """个位数减法，结果 ≥ 0 且 ≤ 9。"""
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        a = rng.randint(0, 9)
+        b = rng.randint(0, a)  # 保证 a-b ≥ 0
+        ans = a - b
+        out.append({
+            "prompt": f"Q: What is {a} - {b}?\nA:",
+            "answer": str(ans),
+            "meta": {"task": "sub_small", "a": a, "b": b, "difficulty": "easy"}
+        })
+    return out
+
+
+def gen_compare(n: int, seed: int = 42) -> List[Dict]:
+    """两数比较：大的回答 A，小的回答 B。答案是 A/B。"""
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        a = rng.randint(1, 99)
+        b = rng.randint(1, 99)
+        while a == b:
+            b = rng.randint(1, 99)
+        ans = "A" if a > b else "B"
+        out.append({
+            "prompt": f"Q: Which is larger, A={a} or B={b}?\nA:",
+            "answer": ans,
+            "meta": {"task": "compare", "a": a, "b": b, "difficulty": "medium"}
+        })
+    return out
+
+
+def gen_yes_no_parity(n: int, seed: int = 42) -> List[Dict]:
+    """数字奇偶判断：yes=偶数，no=奇数。"""
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        x = rng.randint(1, 99)
+        ans = "yes" if x % 2 == 0 else "no"
+        out.append({
+            "prompt": f"Q: Is {x} an even number?\nA:",
+            "answer": ans,
+            "meta": {"task": "parity", "x": x, "difficulty": "medium"}
+        })
+    return out
+
+
+TASK_REGISTRY = {
+    "add_small": gen_add_small,
+    "sub_small": gen_sub_small,
+    "compare": gen_compare,
+    "parity": gen_yes_no_parity,
+}
+```
+
+### `/kaggle/working/phase_minus_1.py`
+
+```python
+"""
+Phase -1: 可行性底线
+跑 SmolLM-135M on 4 tasks × 200 samples
+输出每个任务的 (accuracy, entropy AUROC)
+
+运行时间：T4 上约 5-10 分钟
+"""
+import sys
+sys.path.insert(0, '/kaggle/working')
+
+import json
+import time
+import torch
+import numpy as np
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+from utils.seeding import SeedBundle
+from utils.signals import compute_entropy, compute_margin, compute_max_prob
+from utils.stats import bootstrap_auroc_ci
+from data.generators import TASK_REGISTRY
+
+
+MODEL_ID = "HuggingFaceTB/SmolLM-135M"
+N_SAMPLES = 200  # Phase -1 mini 规模
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def tokenize_with_leading_space(tokenizer, text: str) -> int:
+    """
+    把答案 token 化。如果前面有空格版本是单 token，用带空格版本。
+    返回 token_id 或 None（非单 token）。
+    """
+    # 先试带前导空格版本
+    ids_with_space = tokenizer.encode(" " + text, add_special_tokens=False)
+    if len(ids_with_space) == 1:
+        return ids_with_space[0]
+    # 再试裸文本
+    ids_bare = tokenizer.encode(text, add_special_tokens=False)
+    if len(ids_bare) == 1:
+        return ids_bare[0]
+    return None  # 不是单 token，跳过
+
+
+@torch.no_grad()
+def measure_one_sample(model, tokenizer, prompt: str, answer_token_id: int) -> dict:
+    """
+    对一个样本做一次 forward，返回所有信号 + 是否答对。
+    """
+    inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
+    outputs = model(**inputs)
+    # logits: [1, seq_len, vocab_size]
+    # 最后一个位置的 logits 预测下一个 token
+    last_logits = outputs.logits[0, -1, :]  # [vocab_size]
+    
+    predicted_id = last_logits.argmax().item()
+    correct = int(predicted_id == answer_token_id)
+    
+    return {
+        "entropy": compute_entropy(last_logits),
+        "margin": compute_margin(last_logits),
+        "max_prob": compute_max_prob(last_logits),
+        "predicted_id": predicted_id,
+        "correct": correct,
+        "answer_token_id": answer_token_id,
+    }
+
+
+def run_task(task_name: str, model, tokenizer, n: int, seed: int) -> dict:
+    print(f"\n=== Task: {task_name} ===")
+    gen = TASK_REGISTRY[task_name]
+    samples = gen(n, seed=seed)
+    
+    # 过滤：只保留答案是单 token 的样本
+    valid_samples = []
+    for s in samples:
+        tid = tokenize_with_leading_space(tokenizer, s["answer"])
+        if tid is not None:
+            s["answer_token_id"] = tid
+            valid_samples.append(s)
+    
+    drop_rate = 1 - len(valid_samples) / len(samples)
+    print(f"  原始 {len(samples)} 样本，保留 {len(valid_samples)} 个单 token 答案 "
+          f"(丢弃率 {drop_rate:.1%})")
+    
+    if len(valid_samples) < 50:
+        return {
+            "task": task_name,
+            "error": f"only {len(valid_samples)} valid samples, skipping",
+        }
+    
+    # 跑推理
+    t0 = time.time()
+    records = []
+    for i, s in enumerate(valid_samples):
+        r = measure_one_sample(model, tokenizer, s["prompt"], s["answer_token_id"])
+        r["meta"] = s["meta"]
+        records.append(r)
+        if (i + 1) % 50 == 0:
+            print(f"  {i+1}/{len(valid_samples)} done ({time.time()-t0:.1f}s)")
+    
+    # 汇总
+    correct = np.array([r["correct"] for r in records])
+    accuracy = correct.mean()
+    
+    results = {
+        "task": task_name,
+        "n_total": len(samples),
+        "n_valid": len(valid_samples),
+        "drop_rate": drop_rate,
+        "accuracy": float(accuracy),
+        "time_seconds": time.time() - t0,
+        "signals": {},
+    }
+    
+    # 对每个信号算 AUROC
+    # 注意：entropy 越高 = 越不确定 = 越可能错。
+    # 要让 AUROC 判"能否区分对/错"，我们用 -entropy 作为 "confidence"。
+    # 同理 margin/max_prob 本身就是 confidence，直接用。
+    for sig_name in ["entropy", "margin", "max_prob"]:
+        values = np.array([r[sig_name] for r in records])
+        score = -values if sig_name == "entropy" else values  # 统一高=confident
+        ci = bootstrap_auroc_ci(score, correct, n_bootstrap=500)
+        results["signals"][sig_name] = ci
+    
+    # 打印摘要
+    print(f"  accuracy: {accuracy:.3f}")
+    for sig, ci in results["signals"].items():
+        if ci.get("degenerate"):
+            print(f"  {sig}: DEGENERATE ({ci.get('reason')})")
+        else:
+            print(f"  {sig}: AUROC={ci['auroc_mean']:.3f} "
+                  f"[{ci['ci_low']:.3f}, {ci['ci_high']:.3f}] "
+                  f"width={ci['ci_width']:.3f}")
+    
+    return results
+
+
+def main():
+    print(f"Loading {MODEL_ID} on {DEVICE}...")
+    t0 = time.time()
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID).to(DEVICE).eval()
+    print(f"Loaded in {time.time()-t0:.1f}s")
+    print(f"Model params: {sum(p.numel() for p in model.parameters())/1e6:.1f}M")
+    
+    bundle = SeedBundle()
+    bundle.apply_global()
+    
+    all_results = {
+        "model": MODEL_ID,
+        "n_samples": N_SAMPLES,
+        "device": DEVICE,
+        "seed_bundle": {
+            "data": bundle.data_seed,
+            "sampling": bundle.sampling_seed,
+        },
+        "tasks": {},
+    }
+    
+    for task_name in TASK_REGISTRY.keys():
+        all_results["tasks"][task_name] = run_task(
+            task_name, model, tokenizer, N_SAMPLES, bundle.data_seed
+        )
+    
+    # 保存
+    out_path = '/kaggle/working/results/phase_minus_1_mini.json'
+    with open(out_path, 'w') as f:
+        json.dump(all_results, f, indent=2)
+    
+    # 决策汇总
+    print("\n" + "="*60)
+    print("GATE -1 决策汇总")
+    print("="*60)
+    passed = []
+    for task_name, r in all_results["tasks"].items():
+        if "error" in r:
+            status = f"❌ {r['error']}"
+        else:
+            acc = r["accuracy"]
+            ent_ci = r["signals"].get("entropy", {})
+            ent_auc = ent_ci.get("auroc_mean", float('nan'))
+            if 0.40 <= acc <= 0.85:
+                status = f"✅ acc={acc:.2f} ∈ [0.40, 0.85], entropy AUROC={ent_auc:.3f}"
+                passed.append(task_name)
+            elif acc < 0.40:
+                status = f"⚠️ acc={acc:.2f} 太低（模型无法胜任）"
+            else:
+                status = f"⚠️ acc={acc:.2f} 太高（信号饱和）"
+        print(f"  {task_name}: {status}")
+    
+    print(f"\n通过 GATE -1 的任务: {passed}")
+    if len(passed) == 0:
+        print("🔴 没有任务通过 → 考虑切换到 SmolLM-360M 或调难度")
+    elif len(passed) == 1:
+        print("🟡 只有 1 个任务通过 → 只用这个任务继续")
+    else:
+        print(f"🟢 {len(passed)} 个任务通过 → 可进入 Phase 0")
+    
+    print(f"\n结果已保存到 {out_path}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+**执行：**
+
+```python
+# Cell 4
+%run /kaggle/working/phase_minus_1.py
+```
+
+**预计 5-10 分钟跑完。** 输出 JSON 在 `/kaggle/working/results/phase_minus_1_mini.json`。
+
+---
+
+## 七、H5-7：预注册与规范冻结
+
+### `/kaggle/working/gates.json`
+
+```json
+{
+  "version": "0.1-pre-reg",
+  "frozen_date": "2026-05-07",
+  "note": "此文件一旦 commit 不允许修改。任何阈值变更需在 CHANGELOG 解释并 bump 版本。",
+  
+  "gate_minus_1": {
+    "description": "任务可行性底线",
+    "criteria": {
+      "accuracy_min": 0.40,
+      "accuracy_max": 0.85,
+      "min_tasks_passing": 1
+    },
+    "actions": {
+      "pass": "进入 Phase 0",
+      "all_too_low": "换 SmolLM-360M 或降难度",
+      "all_too_high": "提升任务难度"
+    }
+  },
+  
+  "gate_0": {
+    "description": "MQ 仪器稳定性",
+    "criteria": {
+      "ci_width_max": 0.05,
+      "sample_size_min": 500
+    }
+  },
+  
+  "gate_1": {
+    "description": "Phase 1 probe 上限",
+    "criteria": {
+      "B_probe_min_for_go": 0.55,
+      "B_probe_min_gap_over_A": 0.05
+    },
+    "actions": {
+      "B_ge_0.65": "Go to Phase 2",
+      "B_in_0.55_0.65": "Go with caution, increase sample size",
+      "B_lt_0.55": "No-Go on 135M, pivot to 360M within 72h"
+    }
+  },
+  
+  "gate_2": {
+    "description": "Phase 2 SPL 训练判决",
+    "criteria": {
+      "C_gt_B_plus": 0.03,
+      "C_gt_A_plus": 0.05,
+      "C_random_gap": 0.03,
+      "comment": "C_SPL 必须同时胜过 B_probe+0.03 和 C_random+0.03 才算通过"
+    }
+  },
+  
+  "gate_3": {
+    "description": "泛化真伪鉴别",
+    "criteria": {
+      "R2_deltaMQ_gt": 0.0,
+      "L1_L2_deltaMMQ_retention_min": 0.7,
+      "comment": "R2 上信号衰减 + L1/L2 上保持 = 真元认知映射"
+    }
+  },
+  
+  "statistical_correction": {
+    "primary": "Bonferroni",
+    "secondary": "Benjamini-Hochberg FDR",
+    "n_comparisons_preregistered": 56
+  },
+  
+  "deadlines": {
+    "pivot_after_phase_minus_1_hours": 48,
+    "pivot_after_phase_1_hours": 72,
+    "spl_retry_budget": 2
+  }
+}
+```
+
+**冻结命令**（在 Kaggle cell 里）：
+
+```python
+# Cell 5
+import hashlib
+with open('/kaggle/working/gates.json', 'rb') as f:
+    h = hashlib.sha256(f.read()).hexdigest()
+print(f"gates.json SHA256: {h}")
+print("请把这个 hash 记到 RUNLOG.md，以后任何改动都要解释")
+```
+
+### `/kaggle/working/D2_SPEC.md`
+
+```markdown
+# D2 / D2' 规范（冻结）
+
+## 定义选择
+D2 和 D2' 的"同词"采用**定义 (a)：相同 surface tokens**。
+即：prompt 的 token 序列 99% 重合（允许数字 literal 不同）。
+
+## D2: 同词不同理
+- 训练集用"加法"：`Q: What is 3 + 4?\nA:`
+- D2 测试用"减法"：`Q: What is 3 - 4?\nA:`
+- Token 重合：除了 "+" vs "-"，其它完全相同
+
+## D2': 同词同理
+- 训练集用"加法"：`Q: What is 3 + 4?\nA:`
+- D2' 测试用"加法"但换数字：`Q: What is 7 + 2?\nA:`
+- Token 重合：除了数字 literal，其它完全相同；推理机制相同
+
+## 正例 3 个
+| 类型 | 样例 |
+|---|---|
+| Train | "Q: What is 2 + 3?\nA:" |
+| D2 (同词不同理) | "Q: What is 2 - 3?\nA:" |
+| D2' (同词同理) | "Q: What is 5 + 3?\nA:" |
+
+## 反例（不算同词）
+- "What's the sum of 2 and 3?" ← 不同模板，不算 D2
+- "2 + 3 = ?" ← 不同模板，不算 D2
+
+## 判决逻辑
+- D2 上 ΔMMQ ↓ 且 D2' 上 ΔMMQ 保持 → 真元认知（信号跟着推理走）
+- D2 和 D2' 都 ↓ → 信号跟着表层走（词汇过拟合）
+- 都不变 → 信号太粗粒度，无法区分
+```
+
+---
+
+## 八、H7-10：运行日志
+
+### `/kaggle/working/RUNLOG.md`
+
+```markdown
+# 项目运行日志
+
+## 2026-05-07 第一次启动
+
+### H0-1: Tokenizer 侦查
+- [ ] 跑完 tokenizer_recon.py
+- [ ] 确认哪些答案是单 token
+- [ ] 结果 hash: _______
+
+### H1-3: 工具函数
+- [ ] test_signals.py 8 个测试全绿
+- [ ] utils/ 目录齐全
+
+### H3-5: Phase -1 Mini
+- [ ] phase_minus_1.py 跑完
+- [ ] 每个任务的 (accuracy, entropy AUROC)：
+  - add_small: ___
+  - sub_small: ___
+  - compare: ___
+  - parity: ___
+
+### H5-7: 预注册
+- [ ] gates.json SHA256: _______
+- [ ] D2_SPEC.md 已签名冻结
+
+### H7-10: 卡壳记录
+- 在这里诚实记录遇到的问题、临时改动、超时的步骤
+- 不允许回头润色这一节
+
+### GATE -1 决策
+- 通过的任务: _______
+- 下一步: _______
+```
+
+---
+
+## 九、完整执行清单（按这个顺序做）
+
+在一个干净的 Kaggle Notebook 里，按顺序执行：
+
+```python
+# === Cell 1: 创建目录 ===
+import os, sys
+for d in ['utils', 'tests', 'data', 'results']:
+    os.makedirs(f'/kaggle/working/{d}', exist_ok=True)
+sys.path.insert(0, '/kaggle/working')
+
+# === Cell 2: 写文件 ===
+# 把上面的每个代码文件内容分别用 %%writefile 或 open().write() 写入
+# 例如：
+code = '''<粘贴 tokenizer_recon.py 的完整内容>'''
+with open('/kaggle/working/tokenizer_recon.py', 'w') as f:
+    f.write(code)
+# 对每个文件重复这步
+
+# === Cell 3: Tokenizer 侦查 ===
+%run /kaggle/working/tokenizer_recon.py
+# 看输出，确认至少有 20 个单 token 答案
+
+# === Cell 4: 跑单元测试 ===
+%run /kaggle/working/tests/test_signals.py
+# 必须看到 "🎉 所有测试通过"
+
+# === Cell 5: Phase -1 Mini ===
+%run /kaggle/working/phase_minus_1.py
+# 5-10 分钟，看最后的 GATE -1 决策汇总
+
+# === Cell 6: 冻结 gates.json ===
+import hashlib
+with open('/kaggle/working/gates.json', 'rb') as f:
+    print(f"SHA256: {hashlib.sha256(f.read()).hexdigest()}")
+
+# === Cell 7: 下载所有产物到本地（Kaggle right panel → Output → Download） ===
+# /kaggle/working/ 下的所有文件可以打包下载
+```
+
+---
+
+## 十、读结果：四种可能结局 + 下一步
+
+当你看到 Phase -1 的 GATE -1 决策汇总后，对照下表：
+
+| 结局 | 症状 | 下一步 |
+|---|---|---|
+| 🟢 **通过** | ≥ 2 个任务 accuracy ∈ [0.40, 0.85]，entropy AUROC > 0.55 | 写 Phase 0 全量版（1000 样本 × 全部 signal），用 gates.json 判决 |
+| 🟡 **勉强通过** | 只有 1 个任务在区间内 | 用这一个任务做 Phase 0，但在论文里诚实说明 |
+| 🟡 **全部太容易** | 所有 accuracy > 0.85 | 升级任务：两位数运算、三元素比较 |
+| 🔴 **全部太难** | 所有 accuracy < 0.40 | 72h 内决定：切 SmolLM-360M 或降任务难度 |
+| 🔴 **信号全随机** | accuracy 合理但所有 AUROC ≈ 0.5 且 CI 包含 0.5 | 数据量太小，或任务本身没有"难易梯度"。检查样本分布 |
+
+**三条死线仍然有效**。不要在单个结局上纠结超过 48h。
+
+---
+
+## 十一、执行后必做的三件事
+
+1. **把 `/kaggle/working` 整个下载到本地**（Kaggle 右侧 Output 面板），做一次 git commit。这是你的第一个真实 checkpoint。
+
+2. **填完 RUNLOG.md 的所有 checkbox**。诚实写"卡壳记录"——H7-10 的那一节是给你三个月后的自己看的。
+
+3. **如果 GATE -1 通过**：我可以接着给你 Phase 0 全量版代码（加 self_consistency 信号 + 多 seed + 完整 CI 表）。
+   **如果没通过**：告诉我结果，我们根据具体症状决定 pivot 方向。
+
+---
+
+## 最后说一句
+
+这份代码包从"写 compute_entropy" 到"拿到第一批真实 AUROC 数值"只需要**一个下午**。
+
+你前面用了几周规划这件事。规划没错，但规划的价值只有在**撞上真实数据**后才会兑现——代码跑一次，你对项目的理解会比看 20 份补丁清单深一个数量级。
+
+今晚跑一次。明天我们根据真实数字讨论下一步。

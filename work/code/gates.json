@@ -1,0 +1,71 @@
+{
+  "version": "0.1-pre-reg",
+  "frozen_date": "2026-05-07",
+  "note": "此文件一旦 commit 不允许修改。任何阈值变更需在 CHANGELOG 解释并 bump 版本。",
+
+  "gate_minus_1": {
+    "description": "任务可行性底线",
+    "criteria": {
+      "accuracy_min": 0.40,
+      "accuracy_max": 0.85,
+      "min_tasks_passing": 1
+    },
+    "actions": {
+      "pass": "进入 Phase 0",
+      "all_too_low": "换 SmolLM-360M 或降难度",
+      "all_too_high": "提升任务难度"
+    }
+  },
+
+  "gate_0": {
+    "description": "MQ 仪器稳定性",
+    "criteria": {
+      "ci_width_max": 0.05,
+      "sample_size_min": 500
+    }
+  },
+
+  "gate_1": {
+    "description": "Phase 1 probe 上限",
+    "criteria": {
+      "B_probe_min_for_go": 0.55,
+      "B_probe_min_gap_over_A": 0.05
+    },
+    "actions": {
+      "B_ge_0.65": "Go to Phase 2",
+      "B_in_0.55_0.65": "Go with caution, increase sample size",
+      "B_lt_0.55": "No-Go on 135M, pivot to 360M within 72h"
+    }
+  },
+
+  "gate_2": {
+    "description": "Phase 2 SPL 训练判决",
+    "criteria": {
+      "C_gt_B_plus": 0.03,
+      "C_gt_A_plus": 0.05,
+      "C_random_gap": 0.03,
+      "comment": "C_SPL 必须同时胜过 B_probe+0.03 和 C_random+0.03 才算通过"
+    }
+  },
+
+  "gate_3": {
+    "description": "泛化真伪鉴别",
+    "criteria": {
+      "R2_deltaMQ_gt": 0.0,
+      "L1_L2_deltaMMQ_retention_min": 0.7,
+      "comment": "R2 上信号衰减 + L1/L2 上保持 = 真元认知映射"
+    }
+  },
+
+  "statistical_correction": {
+    "primary": "Bonferroni",
+    "secondary": "Benjamini-Hochberg FDR",
+    "n_comparisons_preregistered": 56
+  },
+
+  "deadlines": {
+    "pivot_after_phase_minus_1_hours": 48,
+    "pivot_after_phase_1_hours": 72,
+    "spl_retry_budget": 2
+  }
+}
