@@ -1,0 +1,110 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{Measuring Metacognitive Equivalents in Compressed Language Models: \\
+The MMQ Framework and Preregistered GATE Decision System}
+
+\author{Ox96048 \\ \texttt{https://github.com/Ox96048/metacognition-seed}}
+
+\date{May 2026 (Preprint)}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We propose a rigorous framework for detecting metacognitive function equivalents in small language models. The central question: \textbf{Can compression pressure trigger modular self-organization in neural networks, producing measurable, transferable, and self-monitorable metacognitive function equivalents?} We introduce the Metacognitive Measurement Quotient (MMQ), defined as $\text{MMQ}(M, D, s) = \text{AUROC}(s, \text{correctness\_on\_D})$, and a preregistered GATE decision system that prevents post-hoc threshold adjustment. Our approach differs from prior work on LLM self-knowledge by focusing on models too small to ``know they know,'' making any detected signal a structural property rather than a learned behavior.
+\end{abstract}
+
+\section{Core Hypothesis}
+
+There exists a signal type $s$ such that:
+\begin{equation}
+\Delta\text{MMQ}(s, \text{entropy}) = \text{MMQ}_s - \text{MMQ}_{\text{entropy}} > 0
+\end{equation}
+is stably positive on out-of-distribution (OOD) data, with bootstrap confidence intervals excluding zero.
+
+\section{The MMQ Framework}
+
+\subsection{Definition}
+For a model $M$, dataset $D$, and signal type $s$:
+\begin{equation}
+\text{MMQ}(M, D, s) = \text{AUROC}(f_s(\text{logits}), \mathbb{1}[\text{correct}])
+\end{equation}
+where $f_s$ maps logits to a scalar confidence score.
+
+\subsection{Signal Types}
+\begin{itemize}
+\item \textbf{Entropy}: $H = -\sum p_i \log p_i$ (Shannon entropy of output distribution)
+\item \textbf{Margin}: $\Delta_{\text{logit}} = \text{top1} - \text{top2}$ (logit gap)
+\item \textbf{Max Probability}: $p_{\max} = \max_i \text{softmax}(\text{logits})_i$
+\item \textbf{Hidden Norm}: $\|\mathbf{h}_L^{(-1)}\|_2$ (last-layer, last-token hidden state norm)
+\item \textbf{Self-Consistency}: Agreement rate across $k$ samples from the same prompt
+\item \textbf{Verbalized Confidence}: Model's own stated confidence (4 prompt templates)
+\item \textbf{Oracle} (diagnostic only): $-\log p(\text{correct token})$
+\end{itemize}
+
+\subsection{Signal Direction Convention}
+All signals are oriented so that \textbf{higher = more confident}. Entropy is negated: $s_{\text{entropy}} = -H$. This convention is critical for AUROC interpretation.
+
+\section{Preregistered GATE System}
+
+All decision thresholds are frozen before experimentation begins. The gates.json file is version-controlled and its SHA256 hash is recorded.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{GATE} & \textbf{Stage} & \textbf{Criterion} \\
+\hline
+-1 & Feasibility & $0.40 \leq \text{accuracy} \leq 0.85$ \\
+0 & Instrument stability & CI width $\leq 0.05$ \\
+1 & Free lunch baseline & $B \geq 0.55$ \\
+2 & Supervised increment & $C > B + 0.03$ \\
+3 & Generalization & $\Delta\text{MMQ} > 0$ on OOD \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{D2/D2' Generalization Test}
+
+To distinguish true metacognitive mapping from lexical overfitting, we define:
+
+\begin{itemize}
+\item \textbf{D2 (same tokens, different reasoning)}: Training uses addition, test uses subtraction. Token overlap $>99\%$ except for the operator token.
+\item \textbf{D2' (same tokens, same reasoning)}: Training uses addition, test uses addition with different numbers. Token overlap $>99\%$ except for numeric literals.
+\end{itemize}
+
+\textbf{Decision rule}: If $\Delta\text{MMQ}$ drops on D2 but holds on D2', the signal tracks reasoning (true metacognition). If both drop, the signal tracks surface tokens (lexical overfitting).
+
+\section{Experimental Protocol}
+
+\begin{enumerate}
+\item \textbf{Phase -1} (Feasibility): Run SmolLM-135M on 4 synthetic tasks $\times$ 200 samples. Pass GATE -1 if $\geq 1$ task has accuracy in $[0.40, 0.85]$.
+\item \textbf{Phase 0} (Instrument calibration): 1000 samples, verify CI width $\leq 0.05$.
+\item \textbf{Phase 1} (Free lunch): Measure whether any signal exceeds entropy baseline without training.
+\item \textbf{Phase 2} (Supervised probe): Train linear probe on hidden states. Verify $C > B + 0.03$.
+\item \textbf{Phase 3} (Generalization): Test on D2/D2' and OOD datasets.
+\end{enumerate}
+
+\section{Why Small Models?}
+
+If a 135M-parameter model exhibits measurable metacognitive signals, this cannot be explained by ``the model read about metacognition in training data'' --- the model is too small to memorize such patterns. Any detected signal must be a \textbf{structural emergent property} of compression, not a learned behavior. This is the key methodological contribution.
+
+\section{Reproducibility}
+
+All code, preregistered thresholds, and D2 specifications are available at:
+\begin{center}
+\url{https://github.com/Ox96048/metacognition-seed}
+\end{center}
+Tag \texttt{v0.1-proof} marks the frozen codebase timestamp.
+
+\section*{Acknowledgments}
+
+This project follows a self-documenting protocol where AI assistants execute under human supervision, with all decisions preregistered before data collection.
+
+\end{document}
