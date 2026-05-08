@@ -1,6 +1,6 @@
 from .measure_mmq import collect_signals, compute_mmq, compute_mmq_with_ci, batch_measure
 from .auroc import compute_auroc, bootstrap_auroc, delong_test, multiple_comparison_correction
-from .bootstrap_ci import bootstrap_ci, bootstrap_statistics
+from .stats import bootstrap_auroc_ci
 
 __all__ = [
     "collect_signals",
@@ -11,6 +11,5 @@ __all__ = [
     "bootstrap_auroc",
     "delong_test",
     "multiple_comparison_correction",
-    "bootstrap_ci",
-    "bootstrap_statistics",
+    "bootstrap_auroc_ci",
 ]
