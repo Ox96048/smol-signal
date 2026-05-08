@@ -1,7 +1,7 @@
 {
-  "version": "0.1-pre-reg",
-  "frozen_date": "2026-05-07",
-  "note": "此文件一旦 commit 不允许修改。任何阈值变更需在 CHANGELOG 解释并 bump 版本。",
+  "version": "1.0-frozen",
+  "frozen_date": "2026-05-08",
+  "note": "此文件一旦 commit 不允许修改。任何阈值变更需在 CHANGELOG 解释并 bump 版本。Phase -1 已完成，阈值未因结果调整。",
 
   "gate_minus_1": {
     "description": "任务可行性底线",
@@ -14,6 +14,28 @@
       "pass": "进入 Phase 0",
       "all_too_low": "换 SmolLM-360M 或降难度",
       "all_too_high": "提升任务难度"
+    },
+    "phase_minus_1_results": {
+      "date": "2026-05-07",
+      "model": "SmolLM-135M",
+      "n_samples": 200,
+      "tasks": {
+        "add_small": {"accuracy": 0.435, "entropy_auroc": 0.814, "verdict": "pass"},
+        "sub_small": {"accuracy": 0.320, "entropy_auroc": 0.938, "verdict": "acc_too_low"},
+        "compare": {"accuracy": 0.465, "margin_auroc": 0.629, "verdict": "pass"},
+        "parity": {"accuracy": 0.060, "margin_auroc": 0.960, "verdict": "acc_too_low"}
+      },
+      "passed_tasks": ["add_small", "compare"],
+      "gate_decision": "2 tasks passed, proceed to Phase 0"
+    }
+  },
+
+  "signal_classification": {
+    "mmq_primary": ["entropy", "margin", "max_prob"],
+    "oracle_diagnostic": {
+      "name": "neg_log_prob_correct",
+      "role": "sanity_check_only",
+      "reason": "label 和信号来自同一信息源（模型对正确 token 的概率估计），不参与 MMQ 主表比较，仅用于诊断信号理论上限"
     }
   },
 

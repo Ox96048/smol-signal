@@ -18,7 +18,7 @@ def gen_add_small(n: int, seed: int = 42) -> List[Dict]:
         b = rng.randint(0, 9 - a)
         ans = a + b
         out.append({
-            "prompt": f"Q: What is {a} + {b}?\nA:",
+            "prompt": f"Q: What is {a} + {b}?\nA: ",
             "answer": str(ans),
             "meta": {"task": "add_small", "a": a, "b": b, "difficulty": "easy"}
         })
@@ -34,7 +34,7 @@ def gen_sub_small(n: int, seed: int = 42) -> List[Dict]:
         b = rng.randint(0, a)
         ans = a - b
         out.append({
-            "prompt": f"Q: What is {a} - {b}?\nA:",
+            "prompt": f"Q: What is {a} - {b}?\nA: ",
             "answer": str(ans),
             "meta": {"task": "sub_small", "a": a, "b": b, "difficulty": "easy"}
         })
@@ -42,33 +42,33 @@ def gen_sub_small(n: int, seed: int = 42) -> List[Dict]:
 
 
 def gen_compare(n: int, seed: int = 42) -> List[Dict]:
-    """两数比较：大的回答 A，小的回答 B。答案是 A/B。"""
+    """个位数比较大小：答案就是较大的那个数字（单 token）。"""
     rng = random.Random(seed)
     out = []
     for _ in range(n):
-        a = rng.randint(1, 99)
-        b = rng.randint(1, 99)
+        a = rng.randint(1, 9)
+        b = rng.randint(1, 9)
         while a == b:
-            b = rng.randint(1, 99)
-        ans = "A" if a > b else "B"
+            b = rng.randint(1, 9)
+        ans = max(a, b)
         out.append({
-            "prompt": f"Q: Which is larger, A={a} or B={b}?\nA:",
-            "answer": ans,
+            "prompt": f"Q: Which is larger, {a} or {b}?\nA: ",
+            "answer": str(ans),
             "meta": {"task": "compare", "a": a, "b": b, "difficulty": "medium"}
         })
     return out
 
 
 def gen_yes_no_parity(n: int, seed: int = 42) -> List[Dict]:
-    """数字奇偶判断：yes=偶数，no=奇数。"""
+    """奇偶判断：答案 1=偶数 0=奇数（单 token 数字）。"""
     rng = random.Random(seed)
     out = []
     for _ in range(n):
         x = rng.randint(1, 99)
-        ans = "yes" if x % 2 == 0 else "no"
+        ans = 1 if x % 2 == 0 else 0
         out.append({
-            "prompt": f"Q: Is {x} an even number?\nA:",
-            "answer": ans,
+            "prompt": f"Q: Is {x} even? 1=yes 0=no\nA: ",
+            "answer": str(ans),
             "meta": {"task": "parity", "x": x, "difficulty": "medium"}
         })
     return out

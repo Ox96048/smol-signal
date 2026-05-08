@@ -260,7 +260,7 @@ def run_all_tests():
 # 第五部分：Tokenizer 侦查
 # ============================================================
 
-def run_tokenizer_recon(model_id: str = "HuggingFaceTB/SmolLM-135M") -> dict:
+def run_tokenizer_recon(model_id: str = "/kaggle/input/datasets/shizhenhso/metacognition-seed/0ai") -> dict:
     """
     H0-1: Tokenizer 侦查
     回答"SmolLM-135M 的答案 token 怎么切"
@@ -362,7 +362,7 @@ def gen_add_small(n: int, seed: int = 42) -> list:
         b = rng.randint(0, 9 - a)
         ans = a + b
         out.append({
-            "prompt": f"Q: What is {a} + {b}?\nA:",
+            "prompt": f"Q: What is {a} + {b}?\nA: ",
             "answer": str(ans),
             "meta": {"task": "add_small", "a": a, "b": b, "difficulty": "easy"}
         })
@@ -378,7 +378,7 @@ def gen_sub_small(n: int, seed: int = 42) -> list:
         b = rng.randint(0, a)
         ans = a - b
         out.append({
-            "prompt": f"Q: What is {a} - {b}?\nA:",
+            "prompt": f"Q: What is {a} - {b}?\nA: ",
             "answer": str(ans),
             "meta": {"task": "sub_small", "a": a, "b": b, "difficulty": "easy"}
         })
@@ -386,33 +386,33 @@ def gen_sub_small(n: int, seed: int = 42) -> list:
 
 
 def gen_compare(n: int, seed: int = 42) -> list:
-    """两数比较：大的回答 A，小的回答 B。答案是 A/B。"""
+    """个位数比较大小：答案就是较大的那个数字（单 token）。"""
     rng = random.Random(seed)
     out = []
     for _ in range(n):
-        a = rng.randint(1, 99)
-        b = rng.randint(1, 99)
+        a = rng.randint(1, 9)
+        b = rng.randint(1, 9)
         while a == b:
-            b = rng.randint(1, 99)
-        ans = "A" if a > b else "B"
+            b = rng.randint(1, 9)
+        ans = max(a, b)
         out.append({
-            "prompt": f"Q: Which is larger, A={a} or B={b}?\nA:",
-            "answer": ans,
+            "prompt": f"Q: Which is larger, {a} or {b}?\nA: ",
+            "answer": str(ans),
             "meta": {"task": "compare", "a": a, "b": b, "difficulty": "medium"}
         })
     return out
 
 
 def gen_yes_no_parity(n: int, seed: int = 42) -> list:
-    """数字奇偶判断：yes=偶数，no=奇数。"""
+    """奇偶判断：答案 1=偶数 0=奇数（单 token 数字）。"""
     rng = random.Random(seed)
     out = []
     for _ in range(n):
         x = rng.randint(1, 99)
-        ans = "yes" if x % 2 == 0 else "no"
+        ans = 1 if x % 2 == 0 else 0
         out.append({
-            "prompt": f"Q: Is {x} an even number?\nA:",
-            "answer": ans,
+            "prompt": f"Q: Is {x} even? 1=yes 0=no\nA: ",
+            "answer": str(ans),
             "meta": {"task": "parity", "x": x, "difficulty": "medium"}
         })
     return out
@@ -430,18 +430,18 @@ TASK_REGISTRY = {
 # 第七部分：Phase -1 主运行器
 # ============================================================
 
-MODEL_ID = "HuggingFaceTB/SmolLM-135M"
+MODEL_ID = "/kaggle/input/datasets/shizhenhso/metacognition-seed/0ai"
 N_SAMPLES = 200
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def tokenize_with_leading_space(tokenizer, text: str) -> int:
-    ids_with_space = tokenizer.encode(" " + text, add_special_tokens=False)
-    if len(ids_with_space) == 1:
-        return ids_with_space[0]
     ids_bare = tokenizer.encode(text, add_special_tokens=False)
     if len(ids_bare) == 1:
         return ids_bare[0]
+    ids_with_space = tokenizer.encode(" " + text, add_special_tokens=False)
+    if len(ids_with_space) == 1:
+        return ids_with_space[0]
     return None
 
 
@@ -493,6 +493,13 @@ def run_task(task_name: str, model, tokenizer, n: int, seed: int) -> dict:
         r = measure_one_sample(model, tokenizer, s["prompt"], s["answer_token_id"])
         r["meta"] = s["meta"]
         records.append(r)
+        if i < 3:
+            pred_token = tokenizer.decode([r["predicted_id"]])
+            ans_token = tokenizer.decode([r["answer_token_id"]])
+            print(f"  [{i}] prompt=...{s['prompt'][-20:]!r} "
+                  f"answer={ans_token!r}(id={r['answer_token_id']}) "
+                  f"predicted={pred_token!r}(id={r['predicted_id']}) "
+                  f"correct={r['correct']}")
         if (i + 1) % 50 == 0:
             print(f"  {i+1}/{len(valid_samples)} done ({time.time()-t0:.1f}s)")
 

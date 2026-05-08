@@ -3,19 +3,12 @@ from typing import Dict, Callable, Optional, Any
 
 from .entropy import compute_entropy, compute_entropy_signal
 from .margin import compute_margin, compute_margin_signal
-from .max_logit import compute_max_prob, compute_max_logit_signal
-from .hidden_norm import compute_hidden_norm, compute_hidden_norm_signal
-from .self_consistency import compute_self_consistency, compute_self_consistency_signal
-from .verbalized import compute_verbalized_signal, build_prompt
-from .signals import compute_neg_log_prob_correct, SIGNAL_REGISTRY
+from .signals import compute_neg_log_prob_correct, compute_max_prob, SIGNAL_REGISTRY
 
 
 SIGNAL_REGISTRY_FULL: Dict[str, Callable] = {}
 
 SIGNAL_REGISTRY_FULL.update(SIGNAL_REGISTRY)
-SIGNAL_REGISTRY_FULL["hidden_norm"] = compute_hidden_norm
-SIGNAL_REGISTRY_FULL["self_consistency"] = compute_self_consistency
-SIGNAL_REGISTRY_FULL["verbalized"] = compute_verbalized_signal
 SIGNAL_REGISTRY_FULL["neg_log_prob_correct"] = compute_neg_log_prob_correct
 
 

@@ -13,58 +13,49 @@
 ## 项目结构
 
 ```
-├── 元认知种子宣言_v5.0.md          # 项目核心文档（哲学+路线）
+├── first10h.txt                    # 10小时执行计划
+├── 元认知种子宣言_v5.1.md           # 项目宣言文档
 ├── requirements.txt                # Python 依赖
 ├── pytest.ini                      # pytest 配置
 ├── work/code/
 │   ├── common/                     # 通用工具
-│   │   ├── types.py                # 数据类型定义
 │   │   ├── seeding.py              # SeedBundle 种子管理
+│   │   ├── types.py                # 数据类型定义
 │   │   ├── model_loader.py         # 模型加载器
-│   │   └── dataset.py              # 数据集工具
+│   │   ├── dataset.py              # 数据集工具
+│   │   └── answer_utils.py         # 答案 token 定位
 │   ├── signals/                    # 元认知信号计算
 │   │   ├── entropy.py              # 熵信号
 │   │   ├── margin.py               # top1-top2 logit 差
-│   │   ├── max_logit.py            # max_prob (softmax 概率)
-│   │   ├── hidden_norm.py          # 隐藏层范数
-│   │   ├── self_consistency.py     # 自一致性
-│   │   ├── verbalized.py           # 语言化置信度
-│   │   ├── signals.py              # 信号注册 + oracle 信号
-│   │   └── registry.py             # 统一入口
+│   │   ├── signals.py              # max_prob + oracle + SIGNAL_REGISTRY
+│   │   ├── registry.py             # 统一入口
+│   │   ├── hidden_norm.py          # 隐藏层范数 (Phase 1+)
+│   │   ├── self_consistency.py     # 自一致性 (Phase 2+)
+│   │   └── verbalized.py           # 语言化置信度 (Phase 3)
 │   ├── core/                       # 核心算法
 │   │   ├── measure_mmq.py          # MMQ 主测量函数
-│   │   ├── bootstrap_ci.py         # 通用 bootstrap CI
-│   │   └── stats.py                # AUROC 专用 bootstrap CI
+│   │   ├── stats.py                # Bootstrap AUROC CI
+│   │   └── auroc.py                # AUROC + DeLong + 多重比较校正
 │   ├── runners/                    # 运行器
-│   │   ├── phase_minus_1.py        # Phase -1 运行器
-│   │   └── phase_minus_1_kaggle.py # Kaggle 自包含版
-│   ├── tests/                      # 测试
+│   │   ├── phase_minus_1_kaggle.py # Phase -1 (已完成)
+│   │   └── phase_0_kaggle.py       # Phase 0 (下一步)
 │   ├── tools/
 │   │   └── tokenizer_recon.py      # Tokenizer 侦查
-│   ├── gates.json                  # 预注册门控阈值
-│   ├── D2_SPEC.md                  # D2/D2' 规范冻结
-│   └── KAGGLE_操作手册.md           # Kaggle 操作步骤
-└── work/data/
-    └── generators/                 # 数据生成器
+│   ├── gates.json                  # 预注册门控阈值 (冻结)
+│   └── D2_SPEC.md                  # D2/D2' 规范 (冻结)
+├── work/data/
+│   └── generators.py               # 数据生成器 (v2 prompt)
+└── history/                        # 归档的旧版文件
 ```
 
 ## 快速开始
 
-### 本地测试
+### 在 Kaggle 上跑 Phase 0（推荐）
 
-```bash
-pip install -r requirements.txt
-pytest
-```
-
-### 在 Kaggle 上跑 Phase -1（推荐）
-
-1. 打开 [Kaggle](https://www.kaggle.com)，新建 Notebook，开启 T4 GPU + Internet
-2. 把 `work/code/runners/phase_minus_1_kaggle.py` 的内容粘贴到 Cell 1
+1. 打开 [Kaggle](https://www.kaggle)，新建 Notebook，开启 T4 GPU
+2. 把 `work/code/runners/phase_0_kaggle.py` 的内容粘贴到 Cell 1
 3. 新建 Cell 2，输入 `main()` 并运行
-4. 等待 5-10 分钟，拿到第一批真实 AUROC 数字
-
-详见 [KAGGLE_操作手册.md](work/code/KAGGLE_操作手册.md)
+4. 等待 30-50 分钟，拿到 AUROC + CI 结果
 
 ## 核心指标
 
@@ -72,8 +63,6 @@ pytest
 MMQ(M, D, signal_type) = AUROC(signal_type, correctness_on_D)
 ΔMMQ(signal, entropy) = MMQ_signal - MMQ_entropy
 ```
-
-**判决核心**：是否存在一种 signal_type，使得 ΔMMQ > 0 在 OOD 上稳定为正，且 bootstrap CI 不包含 0？
 
 ## GATE 决策体系
 

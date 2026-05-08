@@ -3,7 +3,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedTokenizer, PreTrainedModel
 
 
-def load_smollm(model_name: str = "HuggingFaceTB/SmolLM-135M") -> Tuple[PreTrainedTokenizer, PreTrainedModel]:
+def load_smollm(model_name: str = "/kaggle/input/datasets/shizhenhso/metacognition-seed/0ai") -> Tuple[PreTrainedTokenizer, PreTrainedModel]:
     """加载 SmolLM base 模型 (非 instruct).
 
     Phase 0-3 用裸预训练模型, 不经过 instruction tuning.
@@ -22,7 +22,7 @@ def load_smollm(model_name: str = "HuggingFaceTB/SmolLM-135M") -> Tuple[PreTrain
     return tokenizer, model
 
 
-def load_model(model_name: str = "HuggingFaceTB/SmolLM-135M") -> Tuple[PreTrainedTokenizer, PreTrainedModel]:
+def load_model(model_name: str = "/kaggle/input/datasets/shizhenhso/metacognition-seed/0ai") -> Tuple[PreTrainedTokenizer, PreTrainedModel]:
     return load_smollm(model_name)
 
 

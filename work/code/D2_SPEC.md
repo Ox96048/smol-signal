@@ -4,26 +4,30 @@
 D2 和 D2' 的"同词"采用**定义 (a)：相同 surface tokens**。
 即：prompt 的 token 序列 99% 重合（允许数字 literal 不同）。
 
+## Prompt 格式（v2，适配 SmolLM-135M）
+所有 prompt 统一为 `Q: ...\nA: ` 格式（末尾有空格），答案为单 token 数字。
+
 ## D2: 同词不同理
-- 训练集用"加法"：`Q: What is 3 + 4?\nA:`
-- D2 测试用"减法"：`Q: What is 3 - 4?\nA:`
+- 训练集用"加法"：`Q: What is 3 + 4?\nA: `
+- D2 测试用"减法"：`Q: What is 3 - 4?\nA: `
 - Token 重合：除了 "+" vs "-"，其它完全相同
 
 ## D2': 同词同理
-- 训练集用"加法"：`Q: What is 3 + 4?\nA:`
-- D2' 测试用"加法"但换数字：`Q: What is 7 + 2?\nA:`
+- 训练集用"加法"：`Q: What is 3 + 4?\nA: `
+- D2' 测试用"加法"但换数字：`Q: What is 7 + 2?\nA: `
 - Token 重合：除了数字 literal，其它完全相同；推理机制相同
 
 ## 正例 3 个
 | 类型 | 样例 |
 |---|---|
-| Train | "Q: What is 2 + 3?\nA:" |
-| D2 (同词不同理) | "Q: What is 2 - 3?\nA:" |
-| D2' (同词同理) | "Q: What is 5 + 3?\nA:" |
+| Train | "Q: What is 2 + 3?\nA: " |
+| D2 (同词不同理) | "Q: What is 2 - 3?\nA: " |
+| D2' (同词同理) | "Q: What is 5 + 3?\nA: " |
 
 ## 反例（不算同词）
 - "What's the sum of 2 and 3?" ← 不同模板，不算 D2
 - "2 + 3 = ?" ← 不同模板，不算 D2
+- "Q: What is 2 + 3?\nA:" ← 末尾无空格，与训练格式不一致
 
 ## 判决逻辑
 - D2 上 ΔMMQ ↓ 且 D2' 上 ΔMMQ 保持 → 真元认知（信号跟着推理走）

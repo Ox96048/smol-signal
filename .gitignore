@@ -12,11 +12,6 @@ archive/
 _历史归档/
 ALERTS/
 
-# Internal tools (depend on _STATE.md)
-work/code/tools/validate_state.py
-work/code/tools/dump_snapshot.py
-work/code/tools/drift_check.py
-
 # Run log (may contain personal info)
 work/code/RUNLOG.md
 
